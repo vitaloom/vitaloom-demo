@@ -83,7 +83,7 @@ Rules:
 - `occurredAt`: time the water was consumed.
 - `amountMl`: positive integer amount in millilitres. Reject zero/negative or implausible single-intake values (for example, above 5,000 mL).
 - The backend stores each accepted intake record and derives the daily total from those records.
-- A repeated `intakeId` must not be counted twice. A duplicate request should return a clear duplicate result or the original record without inserting another one.
+- A repeated `intakeId` with the same timestamp and amount must not be counted twice. The first successful request returns `201 Created` with `status: "CREATED"`; an identical retry returns `200 OK` with `status: "DUPLICATE"`. Reusing an ID with a different timestamp or amount returns `409 Conflict` with error code `INTAKE_ID_CONFLICT`.
 
 Successful response — `201 Created`:
 
@@ -243,7 +243,7 @@ Use a consistent error shape:
 }
 ```
 
-Use `400 Bad Request` for invalid payloads and `500 Internal Server Error` for unexpected failures. Duplicate records should be handled according to the endpoint's duplicate behavior, not treated as newly created data.
+Use `400 Bad Request` for invalid payloads, `409 Conflict` when an existing `eventId` or `intakeId` is reused with a different payload, and `500 Internal Server Error` for unexpected failures. Identical retries are reported as duplicates and must never double-count a metric.
 
 ## 9. Demo Acceptance Checks
 
