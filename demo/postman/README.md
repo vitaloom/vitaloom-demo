@@ -1,6 +1,6 @@
-# Postman Verification — Backend API v1
+# Postman Regression Verification — Backend API v1
 
-This collection tests health checks, producer event ingestion, water intake idempotency, daily sleep replacement, and the unified daily dashboard.
+This collection can be used to regression-test health checks, producer event ingestion, water-intake idempotency, daily sleep replacement, and the unified daily dashboard. It describes expected assertions; the presence of the collection does not mean a full Collection Runner execution has been recorded as passing.
 
 ## Files
 
@@ -20,7 +20,7 @@ This collection tests health checks, producer event ingestion, water intake idem
 3. Import the collection JSON into Postman.
 4. Run the whole collection in **Collection Runner**, in its defined order. Do not run individual retry/conflict requests first because they depend on the initial insert requests.
 5. If Nginx uses a non-default port, edit the collection variable `baseUrl`, for example `http://localhost:8088`.
-6. Expect every request test to pass. The first run generates a unique `testRunId` and unique event IDs to avoid collisions with previous runs.
+6. The collection is expected to pass when run against a clean, healthy stack. The first run generates a unique `testRunId` and unique event IDs to avoid collisions with previous runs. Save the Runner result as evidence when formal verification is needed.
 
 ## Coverage and expected results
 
@@ -52,7 +52,7 @@ This collection tests health checks, producer event ingestion, water intake idem
 
 ## Verify persistence in Mongo Express
 
-The dashboard endpoint now verifies computed daily values. Use Mongo Express if you also want to inspect the stored documents:
+The dashboard endpoint verifies computed daily values. Use Mongo Express if you also want to inspect the stored documents:
 
 1. Open `http://localhost:8081` (or your configured `ME_PORT`) and sign in using the `ME_BASIC_USER` / `ME_BASIC_PASS` values from your local `.env`.
 2. Open the application database configured by `APP_DB` (the example defaults to `vitaloom_db`).
@@ -66,14 +66,12 @@ The dashboard endpoint now verifies computed daily values. Use Mongo Express if 
 
 If your Mongo Express URL is configured differently, use the port from your local `.env`.
 
-## Gate to start implementing the Go Producer
+## Regression checklist
 
-Proceed when all of these are true:
-
-- [ ] All Postman tests pass in one full Collection Runner execution.
+- [ ] Full Postman Collection Runner execution passes.
 - [ ] Mongo Express shows accepted raw events and no duplicate documents for retries.
 - [ ] Invalid batches do not write partial records.
-- [ ] A full Maven/test build succeeds (`./mvnw test` or `.`\`mvnw.cmd test` on Windows).
+- [ ] The Maven test suite succeeds (`./mvnw test` or `.`\`mvnw.cmd test` on Windows).
 - [ ] Compose services remain healthy after the collection run.
 
-Automated unit tests cover manual metric idempotency, sleep replacement, dashboard aggregation, and empty metrics. Run the full Maven test suite and this collection locally before treating the backend slice as verified.
+Record the actual commands and results when you run these checks. The project's manual iPhone E2E confirmation is separate evidence and does not automatically establish that the full Postman collection or Maven suite passed.
