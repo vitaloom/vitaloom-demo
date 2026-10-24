@@ -1,0 +1,72 @@
+# Postman Verification — Health Ingestion v1
+
+This collection tests the currently implemented API slice. It does not assume a dashboard/statistics read endpoint exists yet.
+
+## Files
+
+- `VitaLoom-Health-Ingestion.postman_collection.json`: sequential requests and Postman assertions.
+- Import this collection into Postman. The collection variable `baseUrl` defaults to `http://localhost`.
+
+## Run it
+
+1. Start the demo stack from the `demo/` directory:
+
+   ```powershell
+   docker compose up --build -d
+   docker compose ps
+   ```
+
+2. Confirm `http://localhost/api/health` returns HTTP 200 and both `status` and `database` equal `UP`.
+3. Import the collection JSON into Postman.
+4. Run the whole collection in **Collection Runner**, in its defined order. Do not run individual retry/conflict requests first because they depend on the initial insert requests.
+5. If Nginx uses a non-default port, edit the collection variable `baseUrl`, for example `http://localhost:8088`.
+6. Expect every request test to pass. The first run generates a unique `testRunId` and unique event IDs to avoid collisions with previous runs.
+
+## Coverage and expected results
+
+| Scenario | Expected result |
+|---|---|
+| Health + MongoDB ping | `200`, both statuses `UP` |
+| Valid step batch (2 events) | `202`, accepted 2, duplicates 0 |
+| Retry same step batch | `202`, accepted 0, duplicates 2 |
+| Reuse event ID with changed payload | `409 EVENT_ID_CONFLICT` |
+| Negative step increment | `400 VALIDATION_ERROR` |
+| Batch containing valid + invalid event | `400`; no records written from that batch |
+| Reuse event ID from rejected batch | `202`, accepted 1 — demonstrates validation-before-write |
+| Same identical event repeated inside one batch | `202`, received 2, accepted 1, duplicates 1 |
+| More than 500 events | `400 VALIDATION_ERROR` |
+| Empty batch | `400 VALIDATION_ERROR` |
+| Valid heart-rate batch (2 events) | `202`, accepted 2 |
+| Retry same heart-rate batch | `202`, accepted 0, duplicates 2 |
+| Reuse heart-rate event ID with changed value | `409 EVENT_ID_CONFLICT` |
+| Heart rate above configured range | `400 VALIDATION_ERROR` |
+| Malformed JSON | `400 INVALID_REQUEST` |
+| Final health check | `200`, both statuses `UP` |
+
+## Verify persistence in Mongo Express
+
+The current API has no read endpoint for raw events or daily aggregation, so Postman alone cannot prove the saved documents or computed totals. Use Mongo Express for this part:
+
+1. Open `http://localhost:8081` (or your configured `ME_PORT`) and sign in using the `ME_BASIC_USER` / `ME_BASIC_PASS` values from your local `.env`.
+2. Open the application database configured by `APP_DB` (the example defaults to `vitaloom_db`).
+3. Inspect collection `health_events`.
+4. Find the latest test run by the `runId` prefix `postman-`. Confirm:
+   - each successful `eventId` appears once as the document `_id`;
+   - step documents use `type: STEPS_DELTA` and retain `value` plus `occurredAt`;
+   - heart-rate documents use `type: HEART_RATE`;
+   - each stored document has a backend-generated `receivedAt`;
+   - the two intentionally rejected invalid/conflicting requests did not create records for their event IDs.
+
+If your Mongo Express URL is configured differently, use the port from your local `.env`.
+
+## Gate to start implementing the Go Producer
+
+Proceed when all of these are true:
+
+- [ ] All Postman tests pass in one full Collection Runner execution.
+- [ ] Mongo Express shows accepted raw events and no duplicate documents for retries.
+- [ ] Invalid batches do not write partial records.
+- [ ] A full Maven/test build succeeds (`./mvnw test` or `.`\`mvnw.cmd test` on Windows).
+- [ ] Compose services remain healthy after the collection run.
+
+The current slice has service-level methods for daily step aggregation and latest heart rate, but no HTTP endpoint exposes those aggregates yet. Daily aggregate behavior should be confirmed by automated tests before implementing the dashboard read endpoint.

@@ -1,0 +1,669 @@
+{
+  "info": {
+    "_postman_id": "bada0b8b-4f0a-4dc2-9c68-520f59f98124",
+    "name": "VitaLoom Demo - Health Ingestion API",
+    "description": "Sequential API verification for the current backend slice. Run the entire collection in Collection Runner. Tests use a new testRunId each run. Current baseUrl defaults to http://localhost.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health check and initialize test run",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/health"
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const runId = \"postman-\" + Date.now() + \"-\" + Math.random().toString(36).slice(2, 8);",
+              "pm.collectionVariables.set(\"testRunId\", runId);",
+              "pm.collectionVariables.set(\"occurredAt1\", new Date(Date.now() - 60000).toISOString());",
+              "pm.collectionVariables.set(\"occurredAt2\", new Date(Date.now() - 30000).toISOString());",
+              "pm.collectionVariables.set(\"occurredAt3\", new Date().toISOString());",
+              "pm.collectionVariables.set(\"stepId1\", runId + \"-step-1\");",
+              "pm.collectionVariables.set(\"stepId2\", runId + \"-step-2\");",
+              "pm.collectionVariables.set(\"heartId1\", runId + \"-hr-1\");",
+              "pm.collectionVariables.set(\"heartId2\", runId + \"-hr-2\");",
+              "pm.collectionVariables.set(\"atomicId\", runId + \"-atomic\");",
+              "pm.collectionVariables.set(\"intraId\", runId + \"-intra\");",
+              ""
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Health endpoint returns HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"Backend and database report UP\", () => {",
+              "  pm.expect(body.status).to.eql(\"UP\");",
+              "  pm.expect(body.database).to.eql(\"UP\");",
+              "});",
+              "pm.test(\"Test run IDs have been initialized\", () => {",
+              "  pm.expect(pm.collectionVariables.get(\"testRunId\")).to.be.a(\"string\").and.not.empty;",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Ingest valid steps batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{stepId1}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"stepsDelta\": 12\n    },\n    {\n      \"eventId\": \"{{stepId2}}\",\n      \"occurredAt\": \"{{occurredAt2}}\",\n      \"stepsDelta\": 8\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Valid steps batch returns 202\", () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.test(\"Both step events are accepted\", () => {",
+              "  pm.expect(body.runId).to.eql(pm.collectionVariables.get(\"testRunId\"));",
+              "  pm.expect(body.received).to.eql(2);",
+              "  pm.expect(body.accepted).to.eql(2);",
+              "  pm.expect(body.duplicates).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Retry identical steps batch (idempotency)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{stepId1}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"stepsDelta\": 12\n    },\n    {\n      \"eventId\": \"{{stepId2}}\",\n      \"occurredAt\": \"{{occurredAt2}}\",\n      \"stepsDelta\": 8\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Retry returns 202\", () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.test(\"Retry inserts no additional records\", () => {",
+              "  pm.expect(body.received).to.eql(2);",
+              "  pm.expect(body.accepted).to.eql(0);",
+              "  pm.expect(body.duplicates).to.eql(2);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Reuse step event ID with changed payload (conflict)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{stepId1}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"stepsDelta\": 99\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Changed payload with an existing event ID returns 409\", () => pm.response.to.have.status(409));",
+              "pm.test(\"Error code identifies event ID conflict\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"EVENT_ID_CONFLICT\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Reject negative stepsDelta",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{testRunId}}-negative-step\",\n      \"occurredAt\": \"{{occurredAt3}}\",\n      \"stepsDelta\": -1\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Negative step increment returns 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"Error code is VALIDATION_ERROR\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Reject entire batch if one event is invalid",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{atomicId}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"stepsDelta\": 7\n    },\n    {\n      \"eventId\": \"{{testRunId}}-atomic-invalid\",\n      \"occurredAt\": \"{{occurredAt2}}\",\n      \"stepsDelta\": -4\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Batch with an invalid event returns 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"Invalid batch reports validation error\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Verify invalid batch wrote nothing",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{atomicId}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"stepsDelta\": 7\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Previously uncommitted event can now be inserted\", () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.test(\"Validation happened before any writes\", () => {",
+              "  pm.expect(body.received).to.eql(1);",
+              "  pm.expect(body.accepted).to.eql(1);",
+              "  pm.expect(body.duplicates).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 - Duplicate event ID inside the same batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{intraId}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"stepsDelta\": 5\n    },\n    {\n      \"eventId\": \"{{intraId}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"stepsDelta\": 5\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Repeated identical IDs in one batch are handled\", () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.test(\"Identical event appears once in persistence counts\", () => {",
+              "  pm.expect(body.received).to.eql(2);",
+              "  pm.expect(body.accepted).to.eql(1);",
+              "  pm.expect(body.duplicates).to.eql(1);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Reject batch larger than 500 events",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": {{oversizedEvents}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const base = Date.now();",
+              "const events = Array.from({ length: 501 }, (_, i) => ({",
+              "  eventId: pm.collectionVariables.get(\"testRunId\") + \"-oversize-\" + i,",
+              "  occurredAt: new Date(base + i).toISOString(),",
+              "  stepsDelta: 1",
+              "}));",
+              "pm.collectionVariables.set(\"oversizedEvents\", JSON.stringify(events));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"A 501-event batch returns 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"Batch limit is reported as validation error\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Reject empty steps batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": []\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Empty batch returns 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"Empty batch reports validation error\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Ingest valid heart-rate batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/heart-rate/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{heartId1}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"heartRateBpm\": 92\n    },\n    {\n      \"eventId\": \"{{heartId2}}\",\n      \"occurredAt\": \"{{occurredAt2}}\",\n      \"heartRateBpm\": 101\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Valid heart-rate batch returns 202\", () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.test(\"Both heart-rate observations are accepted\", () => {",
+              "  pm.expect(body.received).to.eql(2);",
+              "  pm.expect(body.accepted).to.eql(2);",
+              "  pm.expect(body.duplicates).to.eql(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 - Retry identical heart-rate batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/heart-rate/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{heartId1}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"heartRateBpm\": 92\n    },\n    {\n      \"eventId\": \"{{heartId2}}\",\n      \"occurredAt\": \"{{occurredAt2}}\",\n      \"heartRateBpm\": 101\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Heart-rate retry returns 202\", () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.test(\"Heart-rate retry creates no duplicates\", () => {",
+              "  pm.expect(body.received).to.eql(2);",
+              "  pm.expect(body.accepted).to.eql(0);",
+              "  pm.expect(body.duplicates).to.eql(2);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 - Reuse heart-rate event ID with changed payload",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/heart-rate/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{heartId1}}\",\n      \"occurredAt\": \"{{occurredAt1}}\",\n      \"heartRateBpm\": 110\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Changed heart-rate payload returns 409\", () => pm.response.to.have.status(409));",
+              "pm.test(\"Conflict error code is returned\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"EVENT_ID_CONFLICT\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 - Reject heart rate outside configured range",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/heart-rate/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"runId\": \"{{testRunId}}\",\n  \"events\": [\n    {\n      \"eventId\": \"{{testRunId}}-hr-invalid\",\n      \"occurredAt\": \"{{occurredAt3}}\",\n      \"heartRateBpm\": 300\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Out-of-range heart rate returns 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"Validation error code is returned\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 - Reject malformed JSON",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/steps/batch",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"runId\":",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Malformed JSON returns 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"Error code identifies malformed request\", () => {",
+              "  pm.expect(pm.response.json().error.code).to.eql(\"INVALID_REQUEST\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 - Final health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"API and MongoDB remain healthy after ingestion tests\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.expect(body.status).to.eql(\"UP\");",
+              "pm.expect(body.database).to.eql(\"UP\");"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost",
+      "type": "string"
+    },
+    {
+      "key": "testRunId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "occurredAt1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "occurredAt2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "occurredAt3",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "stepId1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "stepId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "heartId1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "heartId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "oversizedEvents",
+      "value": "[]",
+      "type": "string"
+    }
+  ]
+}
