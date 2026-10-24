@@ -2,150 +2,141 @@
 
 ## 1. Objective
 
-Build a runnable end-to-end demo in approximately **3 focused hours**, starting from empty application repositories. The target is a credible vertical slice, not a production-ready MVP.
+Build a runnable, end-to-end demo in approximately **3 focused hours**. The goal is a credible vertical slice, not a production-ready system.
 
-**Primary path:** Expo mobile app → Nginx → Spring Boot API → MongoDB  
-**Data simulation path:** Go producer → Nginx → Spring Boot API → MongoDB → dashboard
+**Mobile path:** Expo app → Nginx → Spring Boot API → MongoDB  
+**Simulation path:** Go Producer → Nginx → Spring Boot API → MongoDB → daily dashboard
 
-## 2. Time Box and Priorities
+## 2. Decisions Already Agreed
+
+- The dashboard uses one read endpoint to return all four metrics.
+- Write endpoints are separated by business operation and metric semantics.
+- Water intake is recorded as separate events and summed for the day.
+- Sleep is one daily record, created or replaced through an upsert.
+- The producer emits raw heart-rate observations and raw step increments; it does not calculate authoritative daily totals.
+- The producer creates stable `eventId` values. Mobile creates a stable `intakeId` for each water-intake action. IDs are reused when retrying the same action/event.
+- Spring Boot validates, persists, and aggregates. MongoDB unique indexes enforce record uniqueness; Nginx only proxies requests.
+- The current daily boundary is 00:00 in `Asia/Ho_Chi_Minh`. Keep original event timestamps and derive the statistics day on the backend.
+- Missing metrics are represented as `null`, not zero.
+- Authentication, personalized day boundaries, overnight sleep-session attribution, and HTTP-level idempotency keys are deferred.
+
+See [API_CONTRACT.md](./API_CONTRACT.md) for endpoint and payload details.
+
+## 3. Time Box and Priorities
 
 | Time | Work package | Exit criteria |
 |---|---|---|
-| 00:00–00:15 | Align API contract and create minimal project skeletons | One agreed event shape, endpoint list, and service layout |
-| 00:15–01:05 | Backend, MongoDB, Nginx, Docker Compose | Compose starts; health endpoint works through Nginx; data can be stored |
-| 01:05–01:40 | Go producer | Producer sends heart-rate and step events to the ingestion endpoint |
-| 01:40–02:25 | Expo dashboard and manual input | One screen displays four metrics and submits sleep/water entries |
-| 02:25–03:00 | End-to-end verification and demo rehearsal | Simulated and manual data are visible after reloading the dashboard |
+| 00:00–00:15 | Scaffold repositories and verify API contract | Minimal backend, mobile, and producer skeletons; API paths agreed |
+| 00:15–01:00 | Backend infrastructure | Spring Boot, MongoDB, Nginx, and Compose start; health endpoint works through Nginx |
+| 01:00–01:35 | Raw ingestion and daily query | Water, sleep, steps, and heart-rate write paths persist data; dashboard endpoint returns four values |
+| 01:35–02:05 | Go Producer | Sends heart-rate and step events through Nginx with stable event IDs |
+| 02:05–02:40 | Expo dashboard and manual input | One screen displays four metrics and can add water/update sleep |
+| 02:40–03:00 | End-to-end verification | Manual and simulated values persist and appear after dashboard refresh |
 
-**Time-box rule:** If a work package overruns, cut optional polish rather than extending the scope. Prioritize a functioning API, one screen, producer ingestion, and a repeatable demo.
+**Time-box rule:** If setup overruns, cut styling and optional polish. Preserve the full critical path: API health, event persistence, producer ingestion, manual input, dashboard, and one repeatable end-to-end demo. Three hours is a target, not a guarantee.
 
-## 3. Functional Scope
+## 4. Functional Scope
 
-### Required metrics
+| Metric | Input source | Write behavior | Dashboard behavior |
+|---|---|---|---|
+| Heart rate (bpm) | Go Producer | Append raw, timestamped observations; deduplicate by `eventId` | Show latest observation for the day |
+| Steps | Go Producer | Append raw step increments; deduplicate by `eventId` | Sum accepted increments for the day |
+| Sleep (hours) | Expo form | Upsert a single daily duration record | Show stored duration or `null` |
+| Water (mL) | Expo form | Append one record per intake; deduplicate by `intakeId` | Sum accepted intake records for the day |
 
-| Metric | Source | Demo behavior |
-|---|---|---|
-| Heart rate (bpm) | Go producer | Emits plausible values; activity may raise heart rate, followed by recovery |
-| Steps (count) | Go producer | Cumulative or incremental values follow a simple activity scenario |
-| Sleep (hours) | Mobile form | User enters a value for the current day |
-| Water intake (mL) | Mobile form | User enters a value for the current day |
+Simulation should use one simple, reproducible activity scenario. Sophisticated behavior modeling, advanced charts, monthly analytics, insights, and authentication are out of scope.
 
-Keep simulation intentionally simple: one reproducible activity scenario is sufficient. Do not spend the time building a sophisticated simulation engine.
-
-### Minimal user experience
-
-- A single dashboard for today's four metrics.
-- A form to save sleep duration and water intake.
-- A refresh/reload path to retrieve persisted values.
-- Clear loading and error states where feasible.
-
-Authentication, complex navigation, advanced charts, monthly analytics, and insights are excluded from this demo.
-
-## 4. Minimal API Contract
-
-Agree on these endpoints before implementing clients:
+## 5. API Surface
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/api/health` | Verify that the API is reachable |
-| GET | `/api/statistics/daily` | Retrieve today's four metrics |
-| POST | `/api/health-events/batch` | Accept simulated heart-rate and step events |
-| PUT | `/api/manual-entries/daily` | Save today's sleep and water values |
+| GET | `/api/health` | Health check |
+| GET | `/api/statistics/daily` | Return all four dashboard metrics in one response |
+| POST | `/api/water-intakes` | Record a single drinking action |
+| PUT | `/api/sleep/daily` | Create or replace today's sleep record |
+| POST | `/api/steps/batch` | Ingest raw step-increment events |
+| POST | `/api/heart-rate/batch` | Ingest raw heart-rate observations |
 
-Example batch payload (illustrative; finalize before coding):
+Use the exact request/response examples in [API_CONTRACT.md](./API_CONTRACT.md). Do not invent a second payload shape in the producer or mobile implementation.
 
-```json
-{
-  "runId": "demo-run-001",
-  "events": [
-    {
-      "eventId": "event-001",
-      "type": "HEART_RATE",
-      "occurredAt": "2026-10-24T09:00:00Z",
-      "value": 92,
-      "unit": "bpm"
-    },
-    {
-      "eventId": "event-002",
-      "type": "STEPS",
-      "occurredAt": "2026-10-24T09:00:00Z",
-      "value": 12,
-      "unit": "steps"
-    }
-  ]
-}
-```
+## 6. Minimal Backend Structure
 
-The exact schema can be simplified, but the producer and backend must use the same contract. Use timestamps consistently, validate metric types and ranges, and do not treat missing data as zero.
+Keep one Spring Boot application and separate code by responsibility, not by deploying separate services:
 
-## 5. Deployment Plan
+- **API controllers:** one controller per write/read boundary where it improves clarity.
+- **Business logic:** metric-specific validation and persistence behavior; a dashboard/statistics service combines read results.
+- **Persistence:** separate raw/event records from the sleep daily record. Use stable IDs and unique indexes for deduplication.
+- **Aggregation:** calculate daily water totals, step totals, and latest heart rate from persisted records. For this demo, calculations may run on request; no background ETL pipeline is required.
+- **Time handling:** store original timestamps consistently and derive day boundaries in `Asia/Ho_Chi_Minh`.
 
-Docker Compose should run only the required backend infrastructure:
+Keep the implementation small. Separate classes are useful where they clarify responsibilities, but this sprint does not require separate microservices or an elaborate domain framework.
 
-- **Nginx:** expose one host port and proxy API routes to Spring Boot.
-- **Spring Boot:** one backend application for ingestion, manual entries, persistence, and daily statistics.
-- **MongoDB:** internal service with a named volume for demo data.
+## 7. Local Deployment
 
-The Expo development server runs on the host with `npx expo start`; it does not need to run in Docker for this demo. The mobile app must use an API base URL reachable from its runtime:
-- Android emulator: typically use the emulator's host-loopback address, such as `10.0.2.2`, with the mapped Nginx port.
-- Physical phone: use the development computer's LAN IP and ensure both devices can reach each other.
-- Do not use `localhost` from a phone/emulator to refer to the host computer.
+Docker Compose should run the backend infrastructure:
 
-The Go producer may run on the host or in Compose. In either case, configure it to reach Nginx. When running inside Compose, use the Nginx service name and container port; when running on the host, use the mapped host port.
+- **Nginx:** expose one host port and reverse-proxy API routes to Spring Boot.
+- **Spring Boot:** a single backend application.
+- **MongoDB:** internal service with a named volume for persisted demo data.
 
-Do not expose MongoDB publicly. Redis, Kafka, Kubernetes, HTTPS, and public DNS are not required for the local demo.
+Run the Expo development server on the host with `npx expo start`. The phone/emulator must call an API address reachable from that device:
+- Android emulator: commonly `10.0.2.2` plus the mapped Nginx port.
+- Physical phone: the development computer's LAN IP and an accessible port.
+- Do not use a phone's `localhost` to refer to the development computer.
 
-## 6. Verification Checklist
+The producer can run on the host or in Compose. Use the host-mapped Nginx port when on the host, or the Nginx service name/container port inside Compose. Do not expose MongoDB publicly. Redis, Kafka, Kubernetes, public DNS, and HTTPS are not needed for this local demo.
+
+## 8. Verification Checklist
 
 ### Infrastructure
-- [ ] `docker compose up --build` starts the required services.
-- [ ] Nginx can reach Spring Boot and forwards the health endpoint.
-- [ ] MongoDB is reachable by Spring Boot and retains data in its volume.
+- [ ] `docker compose up --build` starts required services.
+- [ ] Nginx forwards `GET /api/health` to Spring Boot.
+- [ ] Spring Boot can read/write MongoDB; the named volume retains data.
 
-### API and producer
-- [ ] Valid event batches are accepted.
-- [ ] Invalid event payloads return a clear client error.
-- [ ] The producer can submit multiple batches through Nginx.
-- [ ] Re-running the producer does not accidentally overwrite unrelated manual entries.
+### Write paths and aggregation
+- [ ] Two water-intake records are stored separately and summed.
+- [ ] Updating sleep twice leaves one daily sleep record with the newest value.
+- [ ] Duplicate water `intakeId` does not increase water total twice.
+- [ ] Duplicate step/heart-rate `eventId` does not create a second raw event.
+- [ ] Step total is the sum of unique increments, not a producer-supplied cumulative total.
+- [ ] Heart-rate dashboard value is the latest observation by `occurredAt`.
+- [ ] Events near local midnight are assigned to the correct `Asia/Ho_Chi_Minh` date.
+- [ ] Missing metrics return `null`.
 
-### Mobile
-- [ ] Dashboard loads today's data from the API.
-- [ ] Sleep and water can be saved and retrieved.
-- [ ] Heart rate and steps appear after producer events are ingested.
-- [ ] API connection works on the actual demo device/emulator.
+### Mobile and end-to-end
+- [ ] Expo loads the daily dashboard from the API.
+- [ ] Water can be added more than once in a day.
+- [ ] Sleep can be created and edited.
+- [ ] Producer sends events through Nginx and dashboard refresh shows updated values.
+- [ ] The app can reach the API from the actual emulator/phone.
 
-### End-to-end
-- [ ] Start infrastructure.
-- [ ] Open the Expo app.
-- [ ] Save sleep and water values.
-- [ ] Run the producer.
-- [ ] Refresh the dashboard and show all four metrics.
+## 9. Demo Script
 
-## 7. Demo Script (2–3 Minutes)
+1. Start the Compose stack and show the health endpoint through Nginx.
+2. Open the Expo app and show today's four metrics.
+3. Add two water intakes and update the sleep duration.
+4. Run the Go Producer to send heart-rate and step batches.
+5. Refresh the dashboard and show the summed water/steps, saved sleep duration, and latest heart-rate observation.
+6. Briefly explain per-metric write endpoints, raw events, and backend-owned aggregation.
 
-1. Show the Compose services running.
-2. Open the VitaLoom app and show the four metric cards.
-3. Enter sleep and water values and save.
-4. Run the Go producer and show that event batches are accepted.
-5. Refresh the dashboard and demonstrate updated heart-rate and step data alongside the manual values.
-6. Briefly show Nginx as the single HTTP entry point for producer and mobile API traffic.
-
-## 8. Risks and Fallbacks
+## 10. Risks and Fallbacks
 
 | Risk | Response |
 |---|---|
-| Project scaffolding or dependency setup takes too long | Use the simplest supported starter template; defer styling |
-| Mobile cannot reach the host API | Verify host IP, port mapping, firewall, and device network first |
-| Nginx routing causes delays | Test Spring Boot directly temporarily, then restore and verify the Nginx route |
-| Daily aggregation consumes too much time | Persist raw events and calculate simple daily totals/averages on request |
-| Full vertical slice cannot be completed | Preserve backend + producer ingestion and a basic dashboard; document what remains |
+| Project setup consumes the time box | Use the simplest supported starter; reduce styling |
+| Mobile cannot reach the API | Verify host IP, port mapping, firewall, and device network |
+| Nginx configuration delays progress | Temporarily test Spring Boot directly, then restore and verify the Nginx route |
+| MongoDB event deduplication takes too long | Prioritize unique-index-backed `eventId` handling for steps and heart rate; document any unfinished water retry path |
+| Aggregation is too time-consuming | Query persisted raw records and compute simple daily values on request |
+| Full vertical slice is not ready | Preserve a working backend + producer path, then document remaining mobile work |
 
-## 9. Explicit Non-Goals
+## 11. Explicit Non-Goals
 
-- Production-grade security or authentication.
+- Production-grade security, authentication, or user isolation.
 - Load/stress benchmarking or performance claims.
 - Real wearable integration.
-- Complex ETL pipelines or background processing.
-- Premature service splitting.
+- Personalized daily cutoff times or overnight sleep-session modeling.
+- Kafka, Redis, Kubernetes, complex ETL, or premature service splitting.
+- Production hosting or public networking.
 
-**Success means one reproducible end-to-end workflow works.** It does not mean every production concern has been solved.
+**Success means one repeatable local end-to-end workflow works, with metric-specific write semantics and one unified dashboard response.**
