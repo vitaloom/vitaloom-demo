@@ -1,0 +1,24 @@
+# VCS
+.git
+.gitignore
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Maven output
+target/
+**/target/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Logs and temporary files
+*.log
+.DS_Store
+Thumbs.db
