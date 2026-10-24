@@ -1,6 +1,6 @@
-# Postman Verification — Health Ingestion v1
+# Postman Verification — Backend API v1
 
-This collection tests the currently implemented API slice. It does not assume a dashboard/statistics read endpoint exists yet.
+This collection tests health checks, producer event ingestion, water intake idempotency, daily sleep replacement, and the unified daily dashboard.
 
 ## Files
 
@@ -41,15 +41,22 @@ This collection tests the currently implemented API slice. It does not assume a 
 | Reuse heart-rate event ID with changed value | `409 EVENT_ID_CONFLICT` |
 | Heart rate above configured range | `400 VALIDATION_ERROR` |
 | Malformed JSON | `400 INVALID_REQUEST` |
+| First water intake | `201`, status `CREATED` |
+| Retry identical water intake | `200`, status `DUPLICATE` |
+| Reuse `intakeId` with changed payload | `409 INTAKE_ID_CONFLICT` |
+| Water intake above 5,000 mL | `400 VALIDATION_ERROR` |
+| Create/update daily sleep | `200`, latest value replaces prior value |
+| Sleep duration above 24 hours | `400 VALIDATION_ERROR` |
+| Daily dashboard | `200`, returns all four metrics; this run adds at least 600 mL water |
 | Final health check | `200`, both statuses `UP` |
 
 ## Verify persistence in Mongo Express
 
-The current API has no read endpoint for raw events or daily aggregation, so Postman alone cannot prove the saved documents or computed totals. Use Mongo Express for this part:
+The dashboard endpoint now verifies computed daily values. Use Mongo Express if you also want to inspect the stored documents:
 
 1. Open `http://localhost:8081` (or your configured `ME_PORT`) and sign in using the `ME_BASIC_USER` / `ME_BASIC_PASS` values from your local `.env`.
 2. Open the application database configured by `APP_DB` (the example defaults to `vitaloom_db`).
-3. Inspect collection `health_events`.
+3. Inspect collections `health_events`, `water_intakes`, and `daily_sleep`.
 4. Find the latest test run by the `runId` prefix `postman-`. Confirm:
    - each successful `eventId` appears once as the document `_id`;
    - step documents use `type: STEPS_DELTA` and retain `value` plus `occurredAt`;
@@ -69,4 +76,4 @@ Proceed when all of these are true:
 - [ ] A full Maven/test build succeeds (`./mvnw test` or `.`\`mvnw.cmd test` on Windows).
 - [ ] Compose services remain healthy after the collection run.
 
-The current slice has service-level methods for daily step aggregation and latest heart rate, but no HTTP endpoint exposes those aggregates yet. Daily aggregate behavior should be confirmed by automated tests before implementing the dashboard read endpoint.
+Automated unit tests cover manual metric idempotency, sleep replacement, dashboard aggregation, and empty metrics. Run the full Maven test suite and this collection locally before treating the backend slice as verified.

@@ -30,7 +30,11 @@
               "pm.collectionVariables.set(\"heartId2\", runId + \"-hr-2\");",
               "pm.collectionVariables.set(\"atomicId\", runId + \"-atomic\");",
               "pm.collectionVariables.set(\"intraId\", runId + \"-intra\");",
-              ""
+              "",
+              "pm.collectionVariables.set(\"waterId1\", runId + \"-water-1\");",
+              "pm.collectionVariables.set(\"waterId2\", runId + \"-water-2\");",
+              "pm.collectionVariables.set(\"waterAt1\", new Date(Date.now() - 20000).toISOString());",
+              "pm.collectionVariables.set(\"waterAt2\", new Date(Date.now() - 10000).toISOString());"
             ]
           }
         },
@@ -592,7 +596,305 @@
       ]
     },
     {
-      "name": "16 - Final health check",
+      "name": "16 - Create first water intake",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/water-intakes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"intakeId\": \"{{waterId1}}\",\n  \"occurredAt\": \"{{waterAt1}}\",\n  \"amountMl\": 250\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"First water intake returns 201\",()=>pm.response.to.have.status(201));",
+              "pm.expect(pm.response.json().status).to.eql(\"CREATED\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17 - Retry water intake",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/water-intakes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"intakeId\": \"{{waterId1}}\",\n  \"occurredAt\": \"{{waterAt1}}\",\n  \"amountMl\": 250\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Identical retry returns 200\",()=>pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().status).to.eql(\"DUPLICATE\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18 - Create second water intake",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/water-intakes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"intakeId\": \"{{waterId2}}\",\n  \"occurredAt\": \"{{waterAt2}}\",\n  \"amountMl\": 350\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Second intake returns 201\",()=>pm.response.to.have.status(201));",
+              "pm.expect(pm.response.json().amountMl).to.eql(350);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19 - Water intake ID payload conflict",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/water-intakes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"intakeId\": \"{{waterId1}}\",\n  \"occurredAt\": \"{{waterAt1}}\",\n  \"amountMl\": 500\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Changed payload returns 409\",()=>pm.response.to.have.status(409));",
+              "pm.expect(pm.response.json().error.code).to.eql(\"INTAKE_ID_CONFLICT\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "20 - Reject invalid water amount",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/water-intakes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"intakeId\": \"{{testRunId}}-water-invalid\",\n  \"occurredAt\": \"{{waterAt1}}\",\n  \"amountMl\": 5001\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Invalid amount returns 400\",()=>pm.response.to.have.status(400));",
+              "pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21 - Set daily sleep",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/sleep/daily",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sleepHours\": 6.5\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Sleep update returns 200\",()=>pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().sleepHours).to.eql(6.5);",
+              "pm.expect(pm.response.json().timezone).to.eql(\"Asia/Ho_Chi_Minh\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "22 - Replace daily sleep",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/sleep/daily",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sleepHours\": 7.25\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Sleep replacement returns 200\",()=>pm.response.to.have.status(200));",
+              "pm.expect(pm.response.json().sleepHours).to.eql(7.25);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "23 - Reject invalid sleep duration",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/sleep/daily",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sleepHours\": 24.1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Invalid sleep returns 400\",()=>pm.response.to.have.status(400));",
+              "pm.expect(pm.response.json().error.code).to.eql(\"VALIDATION_ERROR\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "24 - Read daily dashboard",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/statistics/daily"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Dashboard returns 200\",()=>pm.response.to.have.status(200));",
+              "const body=pm.response.json();",
+              "pm.expect(body.timezone).to.eql(\"Asia/Ho_Chi_Minh\");",
+              "pm.expect(body.heartRateBpm).to.eql(98);",
+              "pm.expect(body.steps).to.be.at.least(20);",
+              "pm.expect(body.sleepHours).to.eql(7.25);",
+              "pm.expect(body.waterMl).to.be.at.least(600);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "25 - Final health check",
       "request": {
         "method": "GET",
         "header": [],
@@ -663,6 +965,26 @@
     {
       "key": "oversizedEvents",
       "value": "[]",
+      "type": "string"
+    },
+    {
+      "key": "waterId1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "waterId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "waterAt1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "waterAt2",
+      "value": "",
       "type": "string"
     }
   ]
