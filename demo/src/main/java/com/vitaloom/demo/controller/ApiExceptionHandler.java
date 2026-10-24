@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.vitaloom.demo.dto.ApiErrorResponse;
 import com.vitaloom.demo.service.EventIdConflictException;
+import com.vitaloom.demo.service.IntakeIdConflictException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -28,6 +29,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(EventIdConflictException.class)
     public ResponseEntity<ApiErrorResponse> handleEventIdConflict(EventIdConflictException exception) {
         return error(HttpStatus.CONFLICT, "EVENT_ID_CONFLICT", exception.getMessage());
+    }
+
+    @ExceptionHandler(IntakeIdConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleIntakeIdConflict(IntakeIdConflictException exception) {
+        return error(HttpStatus.CONFLICT, "INTAKE_ID_CONFLICT", exception.getMessage());
     }
 
     private ResponseEntity<ApiErrorResponse> error(
