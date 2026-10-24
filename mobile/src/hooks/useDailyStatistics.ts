@@ -62,7 +62,9 @@ export function useDailyStatistics() {
 
     if (dataRef.current === null) {
       setLoading(true);
-    } else {
+    } else if (force) {
+      // Only explicit refreshes show the pull-to-refresh / refresh-button spinner.
+      // Background polling remains quiet every two seconds.
       setRefreshing(true);
     }
 
