@@ -1,142 +1,173 @@
-# VitaLoom Demo — Implementation Plan
+# VitaLoom Demo — Parallel Implementation Plan
 
-## 1. Objective
+## 1. Goal
 
-Build a runnable, end-to-end demo in approximately **3 focused hours**. The goal is a credible vertical slice, not a production-ready system.
+Complete a small, repeatable, end-to-end demo with two coding agents working in parallel:
 
-**Mobile path:** Expo app → Nginx → Spring Boot API → MongoDB  
-**Simulation path:** Go Producer → Nginx → Spring Boot API → MongoDB → daily dashboard
+- **Go Producer:** generates simulated heart-rate and step events and sends them to Spring Boot.
+- **Expo Mobile:** displays the four metrics, accepts water/sleep input, and refreshes the dashboard automatically on a real iPhone.
+- **Existing backend:** stays the stable integration boundary.
 
-## 2. Decisions Already Agreed
+The success criterion is a working live demo, not production architecture. Do not broaden scope to authentication, real wearable APIs, historical charts, insights, message brokers, or performance benchmarking.
 
-- The dashboard uses one read endpoint to return all four metrics.
-- Write endpoints are separated by business operation and metric semantics.
-- Water intake is recorded as separate events and summed for the day.
-- Sleep is one daily record, created or replaced through an upsert.
-- The producer emits raw heart-rate observations and raw step increments; it does not calculate authoritative daily totals.
-- The producer creates stable `eventId` values. Mobile creates a stable `intakeId` for each water-intake action. IDs are reused when retrying the same action/event.
-- Spring Boot validates, persists, and aggregates. MongoDB unique indexes enforce record uniqueness; Nginx only proxies requests.
-- The current daily boundary is 00:00 in `Asia/Ho_Chi_Minh`. Keep original event timestamps and derive the statistics day on the backend.
-- Missing metrics are represented as `null`, not zero.
-- Authentication, personalized day boundaries, overnight sleep-session attribution, and HTTP-level idempotency keys are deferred.
+## 2. Current Baseline
 
-See [API_CONTRACT.md](./API_CONTRACT.md) for endpoint and payload details.
+The backend has already been merged into `main`. Start both workstreams from the same latest `main` commit. Do not recreate or refactor the backend.
 
-## 3. Time Box and Priorities
-
-| Time | Work package | Exit criteria |
-|---|---|---|
-| 00:00–00:15 | Scaffold repositories and verify API contract | Minimal backend, mobile, and producer skeletons; API paths agreed |
-| 00:15–01:00 | Backend infrastructure | Spring Boot, MongoDB, Nginx, and Compose start; health endpoint works through Nginx |
-| 01:00–01:35 | Raw ingestion and daily query | Water, sleep, steps, and heart-rate write paths persist data; dashboard endpoint returns four values |
-| 01:35–02:05 | Go Producer | Sends heart-rate and step events through Nginx with stable event IDs |
-| 02:05–02:40 | Expo dashboard and manual input | One screen displays four metrics and can add water/update sleep |
-| 02:40–03:00 | End-to-end verification | Manual and simulated values persist and appear after dashboard refresh |
-
-**Time-box rule:** If setup overruns, cut styling and optional polish. Preserve the full critical path: API health, event persistence, producer ingestion, manual input, dashboard, and one repeatable end-to-end demo. Three hours is a target, not a guarantee.
-
-## 4. Functional Scope
-
-| Metric | Input source | Write behavior | Dashboard behavior |
-|---|---|---|---|
-| Heart rate (bpm) | Go Producer | Append raw, timestamped observations; deduplicate by `eventId` | Show latest observation for the day |
-| Steps | Go Producer | Append raw step increments; deduplicate by `eventId` | Sum accepted increments for the day |
-| Sleep (hours) | Expo form | Upsert a single daily duration record | Show stored duration or `null` |
-| Water (mL) | Expo form | Append one record per intake; deduplicate by `intakeId` | Sum accepted intake records for the day |
-
-Simulation should use one simple, reproducible activity scenario. Sophisticated behavior modeling, advanced charts, monthly analytics, insights, and authentication are out of scope.
-
-## 5. API Surface
+Implemented API surface:
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/api/health` | Health check |
-| GET | `/api/statistics/daily` | Return all four dashboard metrics in one response |
-| POST | `/api/water-intakes` | Record a single drinking action |
-| PUT | `/api/sleep/daily` | Create or replace today's sleep record |
-| POST | `/api/steps/batch` | Ingest raw step-increment events |
+| GET | `/api/health` | Health check, including MongoDB connectivity |
+| GET | `/api/statistics/daily` | One response containing all four daily metrics |
+| POST | `/api/water-intakes` | Store one water-intake action |
+| PUT | `/api/sleep/daily` | Create/replace the current local-day sleep value |
+| POST | `/api/steps/batch` | Ingest raw step increments |
 | POST | `/api/heart-rate/batch` | Ingest raw heart-rate observations |
 
-Use the exact request/response examples in [API_CONTRACT.md](./API_CONTRACT.md). Do not invent a second payload shape in the producer or mobile implementation.
+See [API_CONTRACT.md](./API_CONTRACT.md) for request/response examples, validation, duplicate semantics, and date handling. The contract is shared by both workstreams and must not be changed independently.
 
-## 6. Minimal Backend Structure
+## 3. Repository Layout
 
-Keep one Spring Boot application and separate code by responsibility, not by deploying separate services:
+Keep this demo in one repository for quick integration:
 
-- **API controllers:** one controller per write/read boundary where it improves clarity.
-- **Business logic:** metric-specific validation and persistence behavior; a dashboard/statistics service combines read results.
-- **Persistence:** separate raw/event records from the sleep daily record. Use stable IDs and unique indexes for deduplication.
-- **Aggregation:** calculate daily water totals, step totals, and latest heart rate from persisted records. For this demo, calculations may run on request; no background ETL pipeline is required.
-- **Time handling:** store original timestamps consistently and derive day boundaries in `Asia/Ho_Chi_Minh`.
+```text
+vitaloom-demo/
+├── demo/          # Existing Spring Boot + MongoDB + Nginx; do not refactor
+├── producer/      # New Go CLI simulator; Account A owns this directory
+├── mobile/        # New Expo app; Account B owns this directory
+├── API_CONTRACT.md
+├── PLAN.md
+└── PARALLEL_AGENT_PROMPTS.md
+```
 
-Keep the implementation small. Separate classes are useful where they clarify responsibilities, but this sprint does not require separate microservices or an elaborate domain framework.
+## 4. Parallel Work Rules
 
-## 7. Local Deployment
+1. Create two branches from the same current `main`:
+   - `feature/go-health-producer`
+   - `feature/expo-dashboard`
+2. Account A owns only `producer/` and its tests. Account B owns only `mobile/` and its tests.
+3. Neither account edits `demo/`, `API_CONTRACT.md`, this plan, or the other account's directory.
+4. Use separate worktrees/checkouts or agent sessions with isolated working directories. Do not have two agents modify the same working tree.
+5. Commit coherent, verified changes to the assigned branch only. Do not merge to `main` or modify the other branch.
+6. If an API contract gap blocks implementation, report the exact gap and proposed change; wait for the integrator to resolve it rather than silently inventing a payload.
+7. After implementation, report commands actually run and their results. Never report a test as passing unless it was run.
 
-Docker Compose should run the backend infrastructure:
+Both tasks can begin immediately because Producer and Mobile use the existing backend contract and do not need to edit the same files.
 
-- **Nginx:** expose one host port and reverse-proxy API routes to Spring Boot.
-- **Spring Boot:** a single backend application.
-- **MongoDB:** internal service with a named volume for persisted demo data.
+## 5. Workstream A — Go Producer
 
-Run the Expo development server on the host with `npx expo start`. The phone/emulator must call an API address reachable from that device:
-- Android emulator: commonly `10.0.2.2` plus the mapped Nginx port.
-- Physical phone: the development computer's LAN IP and an accessible port.
-- Do not use a phone's `localhost` to refer to the development computer.
+### Toolchain and implementation
 
-The producer can run on the host or in Compose. Use the host-mapped Nginx port when on the host, or the Nginx service name/container port inside Compose. Do not expose MongoDB publicly. Redis, Kafka, Kubernetes, public DNS, and HTTPS are not needed for this local demo.
+- Use the installed Go **1.24.3** for this time-boxed demo; prioritize standard-library packages and avoid dependency setup.
+- Keep the simulator as a CLI process under `producer/`, runnable from the host. Dockerizing it is not required.
+- Configure the API base URL (default `http://localhost`), batch size, send interval, and duration through flags or environment variables.
+- Generate both heart-rate observations and step-increment events. Use plausible simple variation; no elaborate behavior engine is needed.
+- Generate a `runId` for each run and a stable unique `eventId` per event. Prefix IDs by metric (for example, `hr-` and `steps-`) because backend event IDs are globally unique in the shared collection.
+- Use UTC RFC3339 timestamps ending in `Z`. Steps must be `stepsDelta` increments, not cumulative totals.
+- Send to the two existing batch endpoints through Nginx. Do not connect to MongoDB directly.
+- Set HTTP timeouts. Retry transient failures a bounded number of times, reusing the same event IDs and exact payload for every retry. Do not silently drop the failed batch.
+- Log run ID, events sent, accepted/duplicate counts, failures, and final summary. Support graceful termination (Ctrl+C).
+- Do not add Kafka, Redis, a queue, or an external database.
 
-## 8. Verification Checklist
+### Producer acceptance criteria
 
-### Infrastructure
-- [ ] `docker compose up --build` starts required services.
-- [ ] Nginx forwards `GET /api/health` to Spring Boot.
-- [ ] Spring Boot can read/write MongoDB; the named volume retains data.
+- `go test ./...` passes.
+- `go build ./...` succeeds.
+- A documented command runs the simulator against `http://localhost` for 60–90 seconds.
+- Both ingestion endpoints return expected success responses.
+- After a run, `GET /api/statistics/daily` shows heart rate and steps populated or updated.
+- Retrying the same batch does not double-count steps or create another observation.
+- README documents configuration, example output, and troubleshooting.
 
-### Write paths and aggregation
-- [ ] Two water-intake records are stored separately and summed.
-- [ ] Updating sleep twice leaves one daily sleep record with the newest value.
-- [ ] Duplicate water `intakeId` does not increase water total twice.
-- [ ] Duplicate step/heart-rate `eventId` does not create a second raw event.
-- [ ] Step total is the sum of unique increments, not a producer-supplied cumulative total.
-- [ ] Heart-rate dashboard value is the latest observation by `occurredAt`.
-- [ ] Events near local midnight are assigned to the correct `Asia/Ho_Chi_Minh` date.
-- [ ] Missing metrics return `null`.
+> Go 1.24.3 is retained to avoid spending the demo window on a toolchain change. It is an old patch release; revisit the toolchain after the demo rather than treating it as a long-term security/support baseline.
 
-### Mobile and end-to-end
-- [ ] Expo loads the daily dashboard from the API.
-- [ ] Water can be added more than once in a day.
-- [ ] Sleep can be created and edited.
-- [ ] Producer sends events through Nginx and dashboard refresh shows updated values.
-- [ ] The app can reach the API from the actual emulator/phone.
+## 6. Workstream B — Expo Mobile
 
-## 9. Demo Script
+### Toolchain and scaffold
 
-1. Start the Compose stack and show the health endpoint through Nginx.
-2. Open the Expo app and show today's four metrics.
-3. Add two water intakes and update the sleep duration.
-4. Run the Go Producer to send heart-rate and step batches.
-5. Refresh the dashboard and show the summed water/steps, saved sleep duration, and latest heart-rate observation.
-6. Briefly explain per-metric write endpoints, raw events, and backend-owned aggregation.
+- Create a new Expo + React Native + TypeScript app under `mobile/`.
+- Prefer the default Expo Router template unless the minimal single-screen app clearly needs less setup.
+- **Target Expo SDK 54 for the physical-iPhone Expo Go path.** During the current Expo SDK transition, the official `create-expo-app` documentation says the unqualified latest template creates SDK 54 for physical-device Expo Go; SDK 57 requires an explicit template. Do not force a newer SDK if the installed iPhone Expo Go cannot load it.
+- Use the default command for the Expo Go-compatible scaffold, then inspect the generated `package.json` and run `npx expo-doctor`. Use Node.js LTS and the package lock generated by the chosen package manager.
+- Avoid unnecessary UI libraries, chart packages, native modules, and state-management frameworks.
 
-## 10. Risks and Fallbacks
+### UI scope
 
-| Risk | Response |
-|---|---|
-| Project setup consumes the time box | Use the simplest supported starter; reduce styling |
-| Mobile cannot reach the API | Verify host IP, port mapping, firewall, and device network |
-| Nginx configuration delays progress | Temporarily test Spring Boot directly, then restore and verify the Nginx route |
-| MongoDB event deduplication takes too long | Prioritize unique-index-backed `eventId` handling for steps and heart rate; document any unfinished water retry path |
-| Aggregation is too time-consuming | Query persisted raw records and compute simple daily values on request |
-| Full vertical slice is not ready | Preserve a working backend + producer path, then document remaining mobile work |
+Create one polished, responsive health dashboard in Vietnamese:
 
-## 11. Explicit Non-Goals
+- VitaLoom header and current day label.
+- A 2-by-2 grid of cards for heart rate (bpm), steps, sleep (hours), and water (mL).
+- Visually distinguish metric cards with restrained colors, readable typography, comfortable spacing, and clear units.
+- Label heart rate and steps as **simulated** data; do not imply that Apple Health or a real wearable is connected.
+- Buttons open a simple modal/bottom sheet or small form to add one water intake or set the daily sleep duration.
+- Include loading, no-data (`null`), network-error, and retry states. Preserve the last successful dashboard values when a subsequent polling request fails.
+- No historical charts, health insights, login, goals, or multi-screen navigation beyond what is needed to open the forms.
 
-- Production-grade security, authentication, or user isolation.
-- Load/stress benchmarking or performance claims.
-- Real wearable integration.
-- Personalized daily cutoff times or overnight sleep-session modeling.
-- Kafka, Redis, Kubernetes, complex ETL, or premature service splitting.
-- Production hosting or public networking.
+### API and automatic refresh
 
-**Success means one repeatable local end-to-end workflow works, with metric-specific write semantics and one unified dashboard response.**
+- Read the API base URL from `EXPO_PUBLIC_API_BASE_URL`. Example: `http://192.168.1.20` when Nginx exposes port 80. Do not hardcode a machine-specific IP and do not use `localhost` on the iPhone.
+- Fetch `GET /api/statistics/daily` immediately and auto-poll approximately every **2 seconds** while the app is active.
+- Prevent overlapping dashboard requests; stop/clean up timers and abort or ignore stale responses when the screen unmounts or the app goes to the background.
+- After a successful water or sleep write, refresh the dashboard immediately.
+- Water writes use `POST /api/water-intakes` with a new stable `intakeId` for each user action. A retry of the same action must reuse the same ID and payload.
+- Sleep writes use `PUT /api/sleep/daily`. Use the server response and refresh the dashboard; do not treat local state as authoritative.
+- Use the exact JSON contract from [API_CONTRACT.md](./API_CONTRACT.md).
+
+### iPhone connectivity gate
+
+Do this early, before spending time on visual polish:
+
+1. Start backend Compose on the PC and confirm `http://localhost/api/health` returns HTTP 200.
+2. Find the PC's LAN IPv4 using `ipconfig`.
+3. On Safari on the iPhone, open `http://<PC-LAN-IP>/api/health`. Both devices must be on a network that allows LAN connections; allow Windows Firewall access to the relevant port.
+4. Set `EXPO_PUBLIC_API_BASE_URL` to the PC's reachable LAN URL and scan the Expo QR code.
+5. If Safari can reach the API but the app cannot, check iOS Local Network permission for Expo Go, the actual request URL, and device logs before changing the backend. Expo Metro tunnel may help download the development bundle, but it does not automatically expose the backend API to the phone.
+6. If the installed Expo Go rejects the project SDK, align the scaffold with the SDK supported by the installed app before continuing.
+
+### Mobile acceptance criteria
+
+- `npx expo-doctor` passes, or any remaining warning is explained and shown to be non-blocking.
+- TypeScript check passes (use the project script or `npx tsc --noEmit` when configured).
+- The app opens on the actual iPhone using Expo Go.
+- Dashboard values come from the backend; no hardcoded sample data is presented as live data.
+- Polling updates the screen without manually pressing refresh and does not spawn overlapping requests.
+- Water can be added multiple times; sleep can be edited; results persist after reload.
+- README explains setup, environment configuration, iPhone LAN connectivity, and startup commands.
+
+## 7. Integration and Demo Sequence
+
+Integrate only after each workstream reports its own checks and opens a reviewable diff.
+
+1. Review Account A's diff, run Go tests/build, and verify both batch endpoints with the live backend.
+2. Review Account B's diff, run Expo doctor/typecheck, and open the app on the real iPhone.
+3. Merge the branches one at a time after checks pass. Do not merge both blindly or let either agent merge its own branch into `main`.
+4. Start the backend from `demo/` using the existing Compose instructions.
+5. Start Expo from `mobile/` and open it on the iPhone.
+6. Start Producer from `producer/` and let it run for 60–90 seconds.
+7. On the iPhone, observe heart rate and steps updating without manual refresh.
+8. Add two water intakes, update sleep, and confirm the displayed totals/values.
+9. Reload the app, check persistence, run the existing Postman collection if needed, and rehearse the demo once.
+
+## 8. Definition of Done
+
+- [ ] Backend stack is healthy and reachable through Nginx.
+- [ ] Producer tests/build pass and both simulated metric streams persist.
+- [ ] Expo doctor/typecheck pass and the app runs on a physical iPhone.
+- [ ] Dashboard shows all four values and uses `null` correctly when a metric has no data.
+- [ ] Dashboard polling refreshes approximately every 2 seconds while active, without overlapping requests.
+- [ ] Water retry does not double-count; sleep update replaces the daily value.
+- [ ] The full flow is repeatable from documented commands.
+- [ ] Both agents provide test evidence and a short list of changed files/known limitations.
+
+## 9. Explicit Non-Goals
+
+- Real HealthKit/Apple Health integration.
+- Authentication or user-specific data isolation.
+- Historical analytics, charts, personalized insights, notifications, or background processing.
+- Kafka, Redis, Kubernetes, microservices, or direct database access from Producer/mobile.
+- Public internet deployment, public DNS, HTTPS setup, or performance claims.
+
+**Success means the four dashboard metrics can be demonstrated on an iPhone, with sleep and water entered manually and heart rate/steps updated automatically from the Go Producer through Spring Boot.**
+
+See [PARALLEL_AGENT_PROMPTS.md](./PARALLEL_AGENT_PROMPTS.md) for the ready-to-copy task prompts.
