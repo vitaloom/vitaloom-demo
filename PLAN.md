@@ -1,5 +1,15 @@
 # VitaLoom Demo — Current Status and Acceptance Record
 
+## Repository role and active workstreams
+
+This repository preserves the original end-to-end prototype, including the backend, mobile client and Producer snapshot used for the owner-confirmed demo. It is a reference and acceptance record, not the active home for new product development.
+
+- Backend implementation: [vitaloom-backend](https://github.com/vitaloom/vitaloom-backend)
+- Mobile implementation: [vitaloom-frontend](https://github.com/vitaloom/vitaloom-frontend)
+- Data Producer: [vitaloom-data-producer](https://github.com/vitaloom/vitaloom-data-producer) (dedicated-repository preparation is tracked in [PR #1](https://github.com/vitaloom/vitaloom-data-producer/pull/1)).
+
+Until the Producer migration PR is merged, the code under `producer/` remains the runnable demo snapshot. Keep the demo's local run instructions intact; do not treat a new change in this snapshot as an update to the corresponding active repository.
+
 ## 1. Goal
 
 This repository is a time-boxed, local end-to-end demo of four health metrics:

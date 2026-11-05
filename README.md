@@ -4,6 +4,10 @@ A runnable, local end-to-end demo of VitaLoom's core health-tracking workflow. I
 
 > **Demo scope, not production architecture.** The backend is local, authentication and user-specific data isolation are not implemented, and this is not a public production deployment.
 
+> **Repository role:** This repository is retained as the original, runnable end-to-end prototype and its acceptance/history record. New product implementation is owned by the separate [Backend](https://github.com/vitaloom/vitaloom-backend), [Frontend](https://github.com/vitaloom/vitaloom-frontend), and [Data Producer](https://github.com/vitaloom/vitaloom-data-producer) repositories. Avoid starting new feature work here; keep this demo useful as a reproducible reference until the team explicitly retires it.
+
+> **Contract ownership:** The canonical backend API contract is maintained in [vitaloom-backend/docs/api/api-contract.md](https://github.com/vitaloom/vitaloom-backend/blob/main/docs/api/api-contract.md). The copy in this repository documents the original demo snapshot.
+
 ## Current status
 
 - **Backend:** Spring Boot + MongoDB + Nginx stack is implemented and has been confirmed running locally by the project owner.
